@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  hive-metastore:
+    image: bde2020/hive-metastore-postgresql:2.3.0
+    #platform: linux/amr64
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    networks:
+      - spark-network
+
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    #platform: linux/amr64
+    environment:
+      SERVICE_PRECONDITION: hive-metastore:5432
+      HIVE_METASTORE_URI: thrift://hive-metastore:9083
+    ports:
+      - "10000:10000"
+    networks:
+      - spark-network
+    depends_on:
+      - hive-metastore
+    volumes:
+      - ./data/warehouse:/user/hive/warehouse
+
+  spark-master:
+    image: bde2020/spark-master:3.1.2-hadoop3.2
+    #platform: linux/amr64
+    environment:
+      - INIT_DAEMON_STEP=setup_spark
+      - PATH=$PATH:/opt/spark/bin
+    ports:
+      - "8080:8080"
+    networks:
+      - spark-network
+    volumes:
+      - ./data:/data
+      - ./spark/scripts:/opt/spark/scripts
+      - ./requirements.txt:/requirements.txt
+
+  spark-worker:
+    image: bde2020/spark-worker:3.1.2-hadoop3.2
+    #platform: linux/amr64
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+    networks:
+      - spark-network
+    depends_on:
+      - spark-master
+    volumes:
+      - ./data:/data
+
+  airflow:
+    image: puckel/docker-airflow:1.10.9
+    #platform: linux/amr64
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__CORE__FERNET_KEY: 'YOUR_FERNET_KEY'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    ports:
+      - "8081:8080"
+    networks:
+      - spark-network
+    depends_on:
+      - spark-master
+    volumes:
+      - ./airflow/dags:/usr/local/airflow/dags
+
+  airflow-db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    networks:
+      - spark-network
+    volumes:
+      - ./data/airflow_db:/var/lib/postgresql/data
+
+  jupyter:
+    image: jupyter/pyspark-notebook:latest
+    #platform: linux/amr64
+    ports:
+      - "8888:8888"
+    networks:
+      - spark-network
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/data
+      - ./requirements.txt:/home/jovyan/work/requirements.txt
+    command: >
+      bash -c "pip install -r /home/jovyan/work/requirements.txt &&
+               start-notebook.sh --NotebookApp.token=''"
+    depends_on:
+      - spark-master
+
+networks:
+  spark-network:
+    driver: bridge

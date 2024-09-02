@@ -1,0 +1,23 @@
+# Use the jupyter/pyspark-notebook as a base image
+FROM ruslanmv/pyspark-elyra:3.1.2
+
+
+# Create the output directory
+#RUN mkdir -p /usr/local/data && \
+#   chmod -R 777 /usr/local/data
+
+# Copy your PySpark script to the Docker image
+COPY main.py /usr/local/main.py
+
+# Install additional Python packages if needed
+COPY requirements.txt /usr/local/requirements.txt
+#RUN pip install -r /usr/local/requirements.txt
+
+# Set the working directory
+WORKDIR /usr/local
+
+
+# By default, the container will start the Jupyter Notebook server
+#CMD ["start-notebook.sh", "--NotebookApp.token=''"]
+
+#To run main.py you should use: /usr/local/spark/bin/spark-submit
