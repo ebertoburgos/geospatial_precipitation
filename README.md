@@ -41,8 +41,10 @@ This README provides instructions for setting up and running a Docker Compose en
 
 1. **Access Airflow UI**
     Navigate to http://localhost:8081/ and log in to the Airflow UI.
+    User: Admin
+    Password: admin
 
-2. **Trigger the DAG Manually**
+3. **Trigger the DAG Manually**
 
     Find the DAG named run_pyspark_job in the Airflow dashboard.
     Trigger the DAG manually by clicking on the "Trigger Dag" button.
