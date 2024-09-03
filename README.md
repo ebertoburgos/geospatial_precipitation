@@ -2,6 +2,12 @@
 
 This README provides instructions for setting up and running a Docker Compose environment to run the Geospatial Precipitation Job. This includes PySpark, Hive, Airflow, and Jupyter Notebooks. Follow the steps below to get started.
 
+
+## Work in Progress
+1. Airflow task needs to run the pyspark script located in the spark container. The connection between containers is not identifying the script.
+2. Integrate Spark SQL (Hive) to Jupyter Notebook so users can use SQL queries directly without using Spark wrappers.
+3. Due limited compute resources the script is hardcoded only to read one day.
+
 ## Prerequisites
 
 - **Docker**: Ensure Docker is installed on your system. You can download Docker from [the official Docker website](https://www.docker.com/get-started).
