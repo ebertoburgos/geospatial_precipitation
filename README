@@ -1,102 +1,68 @@
-PySpark and Jupyter Notebook Docker Setup
-This README provides instructions on how to set up and run a PySpark script using Docker, and how to use Jupyter Notebook to execute queries. This setup is configured using the jupyter/pyspark-notebook Docker image and a custom Dockerfile.
+# Geospatial Precipitation Job
 
-Prerequisites
-Docker: Ensure Docker is installed on your machine. You can download and install Docker from Docker's official website.
+This README provides instructions for setting up and running a Docker Compose environment to run the Geospatial Precipitation Job. This includes PySpark, Hive, Airflow, and Jupyter Notebooks. Follow the steps below to get started.
 
-Docker Image: We will use the jupyter/pyspark-notebook Docker image, and we will also create a custom Dockerfile to set up the environment.
+## Prerequisites
 
-Setup Instructions
-1. Clone or Download the Project
-Clone or download the project directory that contains your PySpark script and any other necessary files.
+- **Docker**: Ensure Docker is installed on your system. You can download Docker from [the official Docker website](https://www.docker.com/get-started).
 
-bash
-Copy code
-git clone https://your-repository-url.git
-cd your-project-directory
-2. Create and Update the Dockerfile
-Create a Dockerfile in your project directory with the following content:
+## Setup Instructions
 
-Dockerfile
-Copy code
-# Use the jupyter/pyspark-notebook as a base image
-FROM jupyter/pyspark-notebook:latest
+1. **Build Docker Images**
 
-# Create the output directory and set permissions
-RUN mkdir -p /home/jovyan/work/data && \
-    chmod -R 777 /home/jovyan/work/data
+   Navigate to the project directory where the `Dockerfile` and `docker-compose.yml` are located and build the Docker images using the following command:
 
-# Set the working directory
-WORKDIR /home/jovyan/work
+   ```bash
+   docker-compose build
+    ```
 
-# Copy your PySpark script and other files to the Docker image
-COPY pyspark_script.py /home/jovyan/work/pyspark_script.py
-COPY requirements.txt /home/jovyan/work/requirements.txt
+2. **Start the Docker Compose Environment**
 
-# Install additional Python packages if needed
-RUN pip install -r /home/jovyan/work/requirements.txt
+    Start the Docker Compose services using:
 
-# Expose port for Jupyter Notebook
-EXPOSE 8888
+    ```bash
+    docker-compose up -d
+    ```
+    This command will start all the containers in the background.
 
-# By default, the container will start the Jupyter Notebook server
-CMD ["start-notebook.sh", "--NotebookApp.token=''"]
-3. Build the Docker Image
-Build the Docker image using the Dockerfile:
+3. **Verify the Setup**
 
-bash
-Copy code
-docker build -t custom-pyspark-jupyter .
-4. Run the Docker Container
-Run the Docker container with volume mounting to sync your local project directory with the container:
+    Airflow Web UI: Access the Airflow web interface at http://localhost:8081/. You can monitor and manually trigger DAGs here.
 
-bash
-Copy code
-docker run -it --rm -p 8888:8888 -v $(pwd):/home/jovyan/work custom-pyspark-jupyter
--p 8888:8888: Maps port 8888 of the container to port 8888 on your host machine.
--v $(pwd):/home/jovyan/work: Mounts the current directory to /home/jovyan/work inside the container.
-5. Access Jupyter Notebook
-Open your web browser and navigate to:
+    Jupyter Notebooks: Access Jupyter Notebooks at http://localhost:8888/. You can run the queries from here.
 
-arduino
-Copy code
-http://localhost:8888
-You should see the Jupyter Notebook interface. No token is required due to the --NotebookApp.token='' configuration in the Dockerfile.
+## Running the PySpark Script
 
-6. Run the PySpark Script
-Open a Terminal in Jupyter Notebook:
+1. **Access Airflow UI**
+    Navigate to http://localhost:8081/ and log in to the Airflow UI.
 
-From the Jupyter Notebook interface, open a new terminal from the New menu.
-Run the PySpark Script:
+2. **Trigger the DAG Manually**
 
-In the terminal, execute the PySpark script using spark-submit:
+    Find the DAG named run_pyspark_job in the Airflow dashboard.
+    Trigger the DAG manually by clicking on the "Trigger Dag" button.
+    This will execute the PySpark script located at /opt/spark/scripts/main.py.
 
-bash
-Copy code
-spark-submit /home/jovyan/work/pyspark_script.py
-7. Execute Queries in Jupyter Notebook
-Create a New Notebook:
 
-From the Jupyter Notebook interface, click on New and select Python 3 to create a new notebook.
-Run PySpark Code:
+## Execute job from Notebooks
 
-In the new notebook, you can write and execute PySpark code to interact with data. For example, you can read data, run SQL queries, and perform transformations.
-python
-Copy code
-from pyspark.sql import SparkSession
+1. **Access Jupyter Notebook**
 
-spark = SparkSession.builder \
-    .appName("MySparkApp") \
-    .getOrCreate()
+    Go to http://localhost:8888/.
 
-# Read data
-df = spark.read.csv("/home/jovyan/work/data/mydata.csv")
-df.show()
+2. **Run main notebook**
 
-# Run SQL queries
-df.createOrReplaceTempView("my_table")
-result = spark.sql("SELECT * FROM my_table WHERE some_column > 10")
-result.show()
-Troubleshooting
-Permission Issues: If you encounter permission issues, ensure that the directory /home/jovyan/work/data inside the container is writable. The Dockerfile sets 777 permissions for development purposes.
-Port Conflicts: Ensure that port 8888 is not being used by another application on your host machine.
+    Go to main_notebook and run it. You can change the path as your wish if you want to try additional dates.
+
+## Execute Queries from Notebooks
+
+1. **Access Jupyter Notebook**
+
+    Go to http://localhost:8888/.
+
+2. **Run queries notebook**
+
+    Go to queries notebook. There are 3 choices of queries that you can run. Select the one that you desire and paste it in
+    ```
+        selected_query = query_h3_index_summary  # Change this to run a different query
+
+    ```

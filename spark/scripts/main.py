@@ -1,39 +1,41 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, udf
-from pyspark.sql.functions import to_date
-from pyspark.sql.types import StringType
+import logging
 import h3
-import pandas as pd
 import numpy as np
+import pandas as pd
 import xarray as xr
 import gcsfs
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, udf, to_date
+from pyspark.sql.types import StringType
 
+# Constants
+FILE_PATH_PATTERN = "gs://gcp-public-data-arco-era5/raw/date-variable-single_level/2022/12/01/total_precipitation/surface.nc"
+PARQUET_OUTPUT_PATH = "/home/jovyan/work/data/precipitation"
+H3_RESOLUTION = 3
 
-# Initialize Spark session
-spark = SparkSession.builder \
-    .appName("PrecipitationApp") \
-    .config("spark.master", "local[*]") \
-    .config("spark.sql.warehouse.dir", "/home/jovyan/work/spark-warehouse") \
-    .config("spark.sql.parquet.compression.codec", "snappy") \
-    .config("spark.memory.fraction", "0.6") \
-    .getOrCreate()
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-#    .config("spark.driver.memory", "1g") \
-#    .config("spark.executor.memory", "1g") \
-#    .config("spark.executor.cores", "2") \
+def initialize_spark_session():
+    """Initialize and return a Spark session."""
+    return SparkSession.builder \
+        .appName("PrecipitationApp") \
+        .config("spark.master", "local[*]") \
+        .config("spark.sql.warehouse.dir", "/home/jovyan/work/spark-warehouse") \
+        .config("spark.sql.parquet.compression.codec", "snappy") \
+        .config("spark.memory.fraction", "0.6") \
+        .getOrCreate()
 
-# Path to the files in GCS
-file_path_pattern = "gs://gcp-public-data-arco-era5/raw/date-variable-single_level/2022/12/01/total_precipitation/surface.nc"
+def read_data_from_gcs(file_path_pattern):
+    """Read data files from GCS using gcsfs."""
+    fs = gcsfs.GCSFileSystem()
+    file_paths = fs.glob(file_path_pattern)
+    return file_paths
 
-# Use gcsfs to open the files directly from GCS
-fs = gcsfs.GCSFileSystem()
-file_paths = fs.glob(file_path_pattern)
-
-# Initialize empty list to store DataFrames
-data_frames = []
-
-for file_path in file_paths:
-    print(f"- Reading {file_path}...")
+def process_file(file_path, fs):
+    """Process a single file and return a pandas DataFrame."""
+    logger.info(f"Reading {file_path}...")
     with fs.open(file_path, 'rb') as f:
         data = xr.open_dataset(f, engine='scipy')
     
@@ -53,25 +55,43 @@ for file_path in file_paths:
         'timestamp': pd.to_datetime(time_flat),
         'precipitation': precipitation_flat
     })
-    # Count the number of rows
-    print(f"Number of rows: {df.shape[0]}")
     
-    print("- Creating Spark DataFrame...")
+    logger.info(f"Number of rows: {df.shape[0]}")
+    return df.head(10000)  # Limit to 10,000 rows
+
+def create_spark_dataframe(df, spark):
+    """Convert a pandas DataFrame to a Spark DataFrame and add a date column."""
+    logger.info("- Creating Spark DataFrame...")
     df_spark = spark.createDataFrame(df)
-    df_spark = df_spark.withColumn('date', to_date(col('timestamp')))
+    return df_spark.withColumn('date', to_date(col('timestamp')))
 
-    # Define UDF to convert lat/lon to H3 index
-    def lat_lon_to_h3(lat, lon, resolution):
-        return h3.geo_to_h3(lat, lon, resolution)
+def lat_lon_to_h3(lat, lon, resolution):
+    """Convert latitude and longitude to H3 index."""
+    return h3.geo_to_h3(lat, lon, resolution)
 
-    h3_udf = udf(lambda lat, lon: lat_lon_to_h3(lat, lon, resolution=3), StringType())
+def add_h3_index(df_spark):
+    """Add H3 index to the Spark DataFrame."""
+    h3_udf = udf(lambda lat, lon: lat_lon_to_h3(lat, lon, H3_RESOLUTION), StringType())
+    return df_spark.withColumn('h3_index', h3_udf(col('latitude'), col('longitude')))
 
-    # Add H3 index to Spark DataFrame
-    df_h3 = df_spark.withColumn('h3_index', h3_udf(col('latitude'), col('longitude')))
+def write_to_parquet(df_h3):
+    """Write the Spark DataFrame to a parquet file."""
+    logger.info("- Writing output...")
+    df_h3.write.mode("overwrite").partitionBy("date", "h3_index").parquet(PARQUET_OUTPUT_PATH)
 
-    # Count the number of rows
-    print(f"Number of rows after adding index: {df_h3.count()}")
+def main():
+    """Main function to run the ETL pipeline."""
+    spark = initialize_spark_session()
+    file_paths = read_data_from_gcs(FILE_PATH_PATTERN)
+    fs = gcsfs.GCSFileSystem()
+    
+    for file_path in file_paths:
+        df = process_file(file_path, fs)
+        df_spark = create_spark_dataframe(df, spark)
+        df_h3 = add_h3_index(df_spark)
+        
+        logger.info(f"Number of rows after adding index: {df_h3.count()}")
+        write_to_parquet(df_h3)
 
-    # Save the result to a parquet file
-    print("- Writing output...")
-    df_h3.partitionBy("date", "h3_index").write.parquet("/home/jovyan/work/data/precipitation")
+if __name__ == "__main__":
+    main()

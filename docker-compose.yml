@@ -31,11 +31,13 @@ services:
     #platform: linux/amr64
     environment:
       - INIT_DAEMON_STEP=setup_spark
-      - PATH=$PATH:/opt/spark/bin
+      - PATH=$PATH:/spark/bin
     ports:
       - "8080:8080"
     networks:
       - spark-network
+    command: >
+      bash -c "pip install -r requirements.txt"
     volumes:
       - ./data:/data
       - ./spark/scripts:/opt/spark/scripts
@@ -50,25 +52,12 @@ services:
       - spark-network
     depends_on:
       - spark-master
+    command: >
+      bash -c "pip install -r requirements.txt"
     volumes:
       - ./data:/data
-
-  airflow:
-    image: puckel/docker-airflow:1.10.9
-    #platform: linux/amr64
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
-      AIRFLOW__CORE__FERNET_KEY: 'YOUR_FERNET_KEY'
-      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
-    ports:
-      - "8081:8080"
-    networks:
-      - spark-network
-    depends_on:
-      - spark-master
-    volumes:
-      - ./airflow/dags:/usr/local/airflow/dags
+      - ./spark/scripts:/opt/spark/scripts
+      - ./requirements.txt:/requirements.txt
 
   airflow-db:
     image: postgres:13
@@ -80,7 +69,71 @@ services:
       - spark-network
     volumes:
       - ./data/airflow_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      retries: 5
 
+  airflow:
+    image: apache/airflow:2.5.0
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: 'YOUR_FERNET_KEY'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    ports:
+      - "8081:8080"
+    networks:
+      - spark-network
+    depends_on:
+      - airflow-db
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./spark/scripts:/opt/spark/scripts
+      - ./airflow/logs:/opt/airflow/logs
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - /var/run/docker.sock:/var/run/docker.sock  # Mount Docker socket
+
+    command: >
+      bash -c "
+      while !</dev/tcp/airflow-db/5432; do
+        echo 'Waiting for PostgreSQL...';
+        sleep 5;
+      done;
+      airflow db upgrade;
+      pip install -r /opt/airflow/requirements.txt;
+      airflow users create -r Admin -u admin -e admin@example.com -f admin -l admin -p admin;
+      airflow webserver"
+    restart: always
+
+  airflow-scheduler:
+    image: apache/airflow:2.5.0
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: 'YOUR_FERNET_KEY'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    networks:
+      - spark-network
+    depends_on:
+      - airflow-db
+      - airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./spark/scripts:/opt/spark/scripts
+      - ./airflow/logs:/opt/airflow/logs
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - /var/run/docker.sock:/var/run/docker.sock  # Mount Docker socket
+    command: >
+      bash -c "
+      while !</dev/tcp/airflow-db/5432; do
+        echo 'Waiting for PostgreSQL...';
+        sleep 5;
+      done;
+      pip install -r /opt/airflow/requirements.txt;
+      airflow scheduler"
+    restart: always
+  
   jupyter:
     image: jupyter/pyspark-notebook:latest
     #platform: linux/amr64
@@ -91,6 +144,7 @@ services:
     volumes:
       - ./notebooks:/home/jovyan/work
       - ./data:/data
+      - ./spark/scripts:/home/jovyan/work
       - ./requirements.txt:/home/jovyan/work/requirements.txt
     command: >
       bash -c "pip install -r /home/jovyan/work/requirements.txt &&
